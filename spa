@@ -1,0 +1,443 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+// --- UI Theming (ProPresenter-inspired) ---
+const theme = {
+    colors: {
+        background: '#1e1e1e',
+        surface: '#2d2d2d',
+        surfaceHighlight: '#3c3c3c',
+        primary: '#0A84FF', // A bright blue for interaction
+        primaryHover: '#369EFF',
+        text: '#EFEFEF',
+        textSecondary: '#a0a0a0',
+        live: '#FC453A',
+        active: '#30D158',
+        waiting: '#FFD60A',
+        error: '#FF453A',
+        border: '#4a4a4a',
+    },
+    fonts: {
+        main: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    }
+};
+
+// --- SVG Icons (ProPresenter Style) ---
+const icons = {
+    live: (<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-12h2v4h-2zm0 6h2v2h-2z"/></svg>),
+    recordings: (<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7z"/><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 16H4V6h16v13z"/></svg>),
+    schedule: (<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 002 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z"/></svg>),
+    analytics: (<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4 9h4v11H4zm6-5h4v16h-4zm6 8h4v8h-4z"/></svg>),
+    settings: (<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>),
+    plus: (<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>),
+    sparkle: (<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 3L9.5 8.5L4 11l5.5 2.5L12 19l2.5-5.5L20 11l-5.5-2.5z"/></svg>),
+    copy: (<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>),
+    trash: (<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>),
+    edit: (<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>),
+};
+
+// --- Firebase Hooks ---
+function useAuth() {
+    const [authReady, setAuthReady] = useState(false);
+    const [user, setUser] = useState(null);
+
+    useEffect(() => {
+        // Add a check to ensure Firebase is loaded
+        if (!window.firebase) {
+            console.error("Firebase SDK not detected. Auth will not proceed.");
+            setAuthReady(false);
+            return;
+        }
+
+        const { initializeApp } = window.firebase.app;
+        const { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } = window.firebase.auth;
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-streamplus-app';
+
+        if (!firebaseConfig) {
+            console.error("Firebase config not found.");
+            return;
+        }
+
+        const app = initializeApp(firebaseConfig, appId);
+        const auth = getAuth(app);
+        
+        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            if (currentUser) {
+                setUser(currentUser);
+            } else {
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                try {
+                    if (token) {
+                        await signInWithCustomToken(auth, token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Authentication failed:", error);
+                }
+            }
+            setAuthReady(true);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    return { authReady, user };
+}
+
+function useFirestore(collectionName) {
+    const { user } = useAuth();
+    const [data, setData] = useState([]);
+
+    useEffect(() => {
+        if (!user || !window.firebase) return;
+        
+        const { getFirestore, collection, query, onSnapshot } = window.firebase.firestore;
+        
+        const db = getFirestore();
+        const userId = user.uid;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-streamplus-app';
+        const collectionPath = `artifacts/${appId}/users/${userId}/${collectionName}`;
+
+        const q = query(collection(db, collectionPath));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const items = [];
+            querySnapshot.forEach((doc) => {
+                items.push({ id: doc.id, ...doc.data() });
+            });
+            setData(items);
+        });
+
+        return () => unsubscribe();
+    }, [user, collectionName]);
+
+    return data;
+}
+
+const dbAction = (collectionName, action, payload = {}) => {
+    return new Promise(async (resolve, reject) => {
+        if (!window.firebase) {
+            return reject("Firebase SDK not detected.");
+        }
+
+        const { getAuth } = window.firebase.auth;
+        const { getFirestore, doc, collection, addDoc, updateDoc, deleteDoc, setDoc, getDoc, serverTimestamp } = window.firebase.firestore;
+
+        const auth = getAuth();
+        if (!auth.currentUser) return reject("User not authenticated.");
+
+        const db = getFirestore();
+        const userId = auth.currentUser.uid;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-streamplus-app';
+        const path = `artifacts/${appId}/users/${userId}/${collectionName}`;
+
+        try {
+            switch(action) {
+                case 'add':
+                    await addDoc(collection(db, path), { ...payload, createdAt: serverTimestamp() });
+                    break;
+                case 'update':
+                    await updateDoc(doc(db, path, payload.id), payload.data);
+                    break;
+                case 'delete':
+                    await deleteDoc(doc(db, path, payload.id));
+                    break;
+                case 'set':
+                     await setDoc(doc(db, path, payload.id), payload.data, { merge: true });
+                     break;
+                 case 'get':
+                     const docSnap = await getDoc(doc(db, path, payload.id));
+                     resolve(docSnap.exists() ? docSnap.data() : null);
+                     return;
+            }
+            resolve();
+        } catch (e) {
+            console.error("Firestore Error:", e);
+            reject(e);
+        }
+    });
+};
+
+// --- Main App Component ---
+function App() {
+    const [activeTab, setActiveTab] = useState('Live');
+    
+    return (
+        <div style={{ fontFamily: theme.fonts.main, color: theme.colors.text, backgroundColor: theme.colors.background }} className="h-screen w-full flex">
+            <style>{`
+                ::selection { background: ${theme.colors.primary}; color: white; }
+                ::-webkit-scrollbar { width: 8px; }
+                ::-webkit-scrollbar-track { background: ${theme.colors.background}; }
+                ::-webkit-scrollbar-thumb { background: ${theme.colors.surfaceHighlight}; border-radius: 4px; }
+                ::-webkit-scrollbar-thumb:hover { background: ${theme.colors.border}; }
+            `}</style>
+            
+            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+            
+            <main className="flex-1 flex flex-col p-6 overflow-y-auto">
+                <Header />
+                <div className="mt-6 flex-1">
+                    {activeTab === 'Live' && <LiveControlPanel />}
+                    {activeTab === 'Recordings' && <RecordingsPanel />}
+                    {activeTab === 'Schedule' && <SchedulePanel />}
+                    {activeTab === 'Analytics' && <AnalyticsPanel />}
+                    {activeTab === 'Settings' && <SettingsPanel />}
+                </div>
+            </main>
+        </div>
+    );
+}
+
+// --- UI Components ---
+const Sidebar = ({ activeTab, setActiveTab }) => {
+    const tabs = [
+        { id: 'Live', icon: icons.live },
+        { id: 'Recordings', icon: icons.recordings },
+        { id: 'Schedule', icon: icons.schedule },
+        { id: 'Analytics', icon: icons.analytics },
+        { id: 'Settings', icon: icons.settings }
+    ];
+
+    return (
+        <nav style={{ backgroundColor: theme.colors.surface }} className="w-20 p-2 flex flex-col items-center flex-shrink-0">
+            <div style={{ color: theme.colors.primary }} className="font-bold text-xl mb-10 mt-2">S+</div>
+            {tabs.map(tab => (
+                <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    style={{
+                        backgroundColor: activeTab === tab.id ? theme.colors.primary : 'transparent',
+                        color: activeTab === tab.id ? 'white' : theme.colors.textSecondary
+                    }}
+                    className="p-3 rounded-lg mb-4 transition-all duration-200 hover:opacity-80"
+                >
+                    {tab.icon}
+                </button>
+            ))}
+        </nav>
+    );
+};
+
+const Header = () => (
+    <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">Stream+</h1>
+        {/* Tier switching removed as it was for mock purposes */}
+    </div>
+);
+
+// --- Live Control Panel ---
+function LiveControlPanel() {
+    // Component State
+    const [isLive, setIsLive] = useState(false);
+    const [streamDuration, setStreamDuration] = useState(0);
+    const [ingestStatus, setIngestStatus] = useState('Inactive'); // Inactive, Waiting, Active
+    const [showDestinationModal, setShowDestinationModal] = useState(false);
+    const [editingDestination, setEditingDestination] = useState(null);
+
+    // Data from Firestore
+    const destinations = useFirestore('destinations');
+
+    // Start/Stop Stream Logic
+    const handleGoLive = () => {
+        // This is still a simulation, but it's tied to ingest status
+        if(isLive) { 
+            setIsLive(false);
+            setIngestStatus('Inactive');
+        } else { 
+            setIsLive(true);
+        }
+    };
+    
+    // Toggle Destination Enabled/Disabled
+    const handleToggleDestination = (dest) => {
+        if(isLive) return;
+        dbAction('destinations', 'update', { 
+            id: dest.id, 
+            data: { enabled: !dest.enabled } 
+        });
+    };
+
+    // Open Modal for Editing/Adding
+    const openModal = (dest = null) => {
+        setEditingDestination(dest);
+        setShowDestinationModal(true);
+    };
+
+    return (
+        <>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left Column: Control & Ingest */}
+                <div className="lg:col-span-1 space-y-6">
+                    <div style={{ backgroundColor: theme.colors.surface }} className="p-6 rounded-lg text-center">
+                        <button 
+                            onClick={handleGoLive} 
+                            disabled={ingestStatus !== 'Active' && !isLive} 
+                            style={{ 
+                                backgroundColor: isLive ? theme.colors.live : theme.colors.primary, 
+                                '--hover-color': isLive ? '#FF6961' : theme.colors.primaryHover 
+                            }}
+                            className="w-full px-8 py-3 rounded-md font-bold text-lg text-white transition-all duration-200 hover:bg-[var(--hover-color)] disabled:bg-gray-500 disabled:cursor-not-allowed"
+                        >
+                            {isLive ? 'END STREAM' : 'GO LIVE'}
+                        </button>
+                        <div className="text-4xl mt-4 font-mono font-bold">{formatDuration(streamDuration)}</div>
+                    </div>
+                    
+                    {/* Ingest Source (UI for user info) */}
+                     <div style={{backgroundColor: theme.colors.surface}} className="p-6 rounded-lg">
+                        <h3 className="text-lg font-semibold mb-3">Stream Ingest Source</h3>
+                         <div className="flex items-center space-x-3 mb-4">
+                            <span className={`h-3 w-3 rounded-full flex-shrink-0`} style={{backgroundColor: theme.colors[ingestStatus.toLowerCase()]}}></span>
+                            <span className="font-semibold text-gray-200">{ingestStatus}</span>
+                            {ingestStatus === 'Inactive' && <button onClick={() => setIngestStatus('Waiting')} className="text-sm hover:underline" style={{color: theme.colors.primary}}>Start Listening</button>}
+                        </div>
+                        <p className="text-xs mb-4" style={{color: theme.colors.textSecondary}}>Use these credentials in ProPresenter's RTMP encoder settings.</p>
+                        <div className="space-y-3">
+                           <InfoField label="RTMP Server URL" value="rtmp://ingest.streamplus.io/live" />
+                           <InfoField label="Stream Key" value="live_12345678_abcdefABCDEF" isSecret={true} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Column: Destinations */}
+                <div className="lg:col-span-2">
+                    <div className="flex justify-between items-center mb-4">
+                         <h3 className="text-lg font-semibold">Destinations</h3>
+                         <button onClick={() => openModal()} style={{backgroundColor: theme.colors.surfaceHighlight, color: theme.colors.text}} className="font-semibold py-2 px-3 rounded-md flex items-center space-x-2 hover:opacity-80 transition-opacity">
+                            {icons.plus}
+                            <span>Add Destination</span>
+                        </button>
+                    </div>
+                    <div className="space-y-3">
+                        {destinations.map(dest => (
+                             <div key={dest.id} style={{backgroundColor: theme.colors.surface}} className="p-3 rounded-md flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <div className="mr-3" style={{color: theme.colors.textSecondary}}>{icons.live}</div>
+                                    <div>
+                                        <h4 className="font-bold">{dest.name}</h4>
+                                        <p className="text-sm" style={{color: theme.colors.textSecondary}}>{dest.platform}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-4">
+                                     <div className="flex items-center text-sm">
+                                        <span className={`h-2.5 w-2.5 rounded-full mr-2`}></span>
+                                        <span className="font-semibold">{dest.status || 'Offline'}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <button onClick={() => openModal(dest)} style={{color: theme.colors.textSecondary}} className="hover:text-white">{icons.edit}</button>
+                                        <button onClick={() => dbAction('destinations', 'delete', {id: dest.id})} style={{color: theme.colors.textSecondary}} className="hover:text-red-500">{icons.trash}</button>
+                                    </div>
+                                    <div onClick={() => handleToggleDestination(dest)} className={`w-12 h-6 rounded-full flex items-center cursor-pointer transition-colors ${dest.enabled ? 'justify-end' : 'justify-start'}`} style={{backgroundColor: dest.enabled ? theme.colors.active : theme.colors.surfaceHighlight}}>
+                                        <span className="h-5 w-5 bg-white rounded-full block mx-0.5 shadow-md transform transition-transform"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                         {destinations.length === 0 && <p style={{color: theme.colors.textSecondary}} className="text-center py-8">No destinations configured. Click "Add Destination" to get started.</p>}
+                    </div>
+                </div>
+            </div>
+            {showDestinationModal && <DestinationModal onClose={() => setShowDestinationModal(false)} existingDestination={editingDestination} />}
+        </>
+    );
+}
+
+const InfoField = ({ label, value, isSecret = false }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(value).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+    return (
+        <div>
+            <label className="block text-xs font-semibold mb-1" style={{color: theme.colors.textSecondary}}>{label}</label>
+            <div className="flex items-center rounded-md" style={{backgroundColor: theme.colors.background}}>
+                <input type={isSecret ? "password" : "text"} readOnly value={value} className="bg-transparent px-3 py-1.5 w-full text-sm font-mono" />
+                <button onClick={handleCopy} className="p-2 hover:opacity-80" style={{color: theme.colors.textSecondary}}>
+                    {copied ? 'Copied' : icons.copy}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const DestinationModal = ({ onClose, existingDestination }) => {
+    const [platform, setPlatform] = useState(existingDestination?.platform || 'Custom RTMP');
+    const [name, setName] = useState(existingDestination?.name || '');
+    const [serverUrl, setServerUrl] = useState(existingDestination?.serverUrl || '');
+    const [streamKey, setStreamKey] = useState(existingDestination?.streamKey || '');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const payload = { name, platform, serverUrl, streamKey, status: 'Offline' };
+        if (existingDestination) {
+            dbAction('destinations', 'update', { id: existingDestination.id, data: payload });
+        } else {
+            dbAction('destinations', 'add', payload);
+        }
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <form onSubmit={handleSubmit} style={{backgroundColor: theme.colors.surface, color: theme.colors.text}} className="p-6 rounded-lg w-full max-w-md">
+                <h2 className="text-xl font-bold mb-6">{existingDestination ? 'Edit Destination' : 'Add New Destination'}</h2>
+                
+                <div className="space-y-4">
+                    <InputField label="Nickname" value={name} onChange={setName} placeholder="e.g., Church Website" required />
+                    <SelectField label="Platform" value={platform} onChange={setPlatform} options={['Custom RTMP', 'Facebook', 'YouTube']} />
+                    <InputField label="Server URL (RTMP)" value={serverUrl} onChange={setServerUrl} placeholder="rtmp://a.rtmp.youtube.com/live2" required />
+                    <InputField label="Stream Key" value={streamKey} onChange={setStreamKey} required isSecret />
+                </div>
+
+                <div className="flex justify-end space-x-3 mt-8">
+                    <button type="button" onClick={onClose} style={{backgroundColor: theme.colors.surfaceHighlight}} className="px-4 py-2 rounded-md font-semibold hover:opacity-80">Cancel</button>
+                    <button type="submit" style={{backgroundColor: theme.colors.primary}} className="px-4 py-2 rounded-md font-semibold text-white hover:opacity-80">{existingDestination ? 'Save Changes' : 'Add Destination'}</button>
+                </div>
+            </form>
+        </div>
+    );
+};
+
+// --- Reusable Form Field Components for Modals ---
+const InputField = ({ label, value, onChange, placeholder, required, isSecret }) => (
+    <div>
+        <label className="block text-sm font-semibold mb-1" style={{color: theme.colors.textSecondary}}>{label}</label>
+        <input 
+            type={isSecret ? 'password' : 'text'} 
+            value={value} 
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            required={required}
+            className="w-full px-3 py-2 rounded-md border text-sm"
+            style={{backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text}}
+        />
+    </div>
+);
+
+const SelectField = ({ label, value, onChange, options }) => (
+    <div>
+        <label className="block text-sm font-semibold mb-1" style={{color: theme.colors.textSecondary}}>{label}</label>
+        <select 
+            value={value} 
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full px-3 py-2 rounded-md border text-sm"
+            style={{backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text}}
+        >
+            {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+    </div>
+);
+
+// Placeholder components for other tabs
+const RecordingsPanel = () => <div className="p-4 rounded-lg" style={{backgroundColor: theme.colors.surface}}><h2 className="text-xl font-bold">Recordings</h2><p className="mt-4 text-sm" style={{color: theme.colors.textSecondary}}>Coming soon: A list of all your cloud-recorded streams.</p></div>;
+const SchedulePanel = () => <div className="p-4 rounded-lg" style={{backgroundColor: theme.colors.surface}}><h2 className="text-xl font-bold">Schedule</h2><p className="mt-4 text-sm" style={{color: theme.colors.textSecondary}}>Coming soon: Schedule pre-recorded content to go live automatically.</p></div>;
+const AnalyticsPanel = () => <div className="p-4 rounded-lg" style={{backgroundColor: theme.colors.surface}}><h2 className="text-xl font-bold">Analytics</h2><p className="mt-4 text-sm" style={{color: theme.colors.textSecondary}}>Coming soon: Detailed analytics for past streams.</p></div>;
+const SettingsPanel = () => <div className="p-4 rounded-lg" style={{backgroundColor: theme.colors.surface}}><h2 className="text-xl font-bold">Settings</h2><p className="mt-4 text-sm" style={{color: theme.colors.textSecondary}}>Coming soon: Manage your Stream+ account and settings.</p></div>;
+
+
+export default App;
