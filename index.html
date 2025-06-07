@@ -227,15 +227,25 @@ function LiveControlPanel() {
     useLiveStatus();
     
     // --- Actions ---
+    const { user } = useAuth(); // Get user for sending ID
     const handleGenerateKey = async () => {
+        if (!user) {
+            console.error("User not authenticated. Cannot generate key.");
+            return;
+        }
         setLiveStatus('Waiting');
         setStreamDetails({ streamKey: 'generating...', playbackId: null });
         try {
-            const response = await fetch(`${BACKEND_URL}/create-live-stream`, { method: 'POST' });
+            const response = await fetch(`${BACKEND_URL}/create-live-stream`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.uid, appId: __app_id })
+            });
             if (!response.ok) throw new Error('Backend responded with an error');
             const data = await response.json();
             setStreamDetails(data);
-            // The status will automatically be updated to 'idle' by the backend now.
+            // The status will automatically be updated to 'idle' by the backend now,
+            // and the useLiveStatus listener will pick it up.
         } catch (error) {
             console.error("Failed to get stream details from backend:", error);
             setStreamDetails({ streamKey: 'error-check-backend', playbackId: null });
@@ -258,6 +268,8 @@ function LiveControlPanel() {
         setShowDestinationModal(true);
     };
 
+    const displayStatus = liveStatus === 'idle' ? 'Ready' : liveStatus;
+
     return (
         <>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -278,8 +290,8 @@ function LiveControlPanel() {
                     <div style={{backgroundColor: theme.colors.surface}} className="p-6 rounded-lg">
                         <h3 className="text-lg font-semibold mb-3">Stream Ingest Source</h3>
                         <div className="flex items-center space-x-3 mb-4">
-                            <span className={`h-3 w-3 rounded-full flex-shrink-0`} style={{backgroundColor: theme.colors[liveStatus.toLowerCase()] || theme.colors.error}}></span>
-                            <span className="font-semibold text-gray-200 capitalize">{liveStatus}</span>
+                            <span className={`h-3 w-3 rounded-full flex-shrink-0`} style={{backgroundColor: theme.colors[displayStatus.toLowerCase()] || theme.colors.error}}></span>
+                            <span className="font-semibold text-gray-200 capitalize">{displayStatus}</span>
                             {liveStatus === 'Inactive' && <button onClick={handleGenerateKey} className="text-sm hover:underline" style={{color: theme.colors.primary}}>Generate Stream Key</button>}
                         </div>
                         <p className="text-xs mb-4" style={{color: theme.colors.textSecondary}}>Generate a key and enter these credentials into ProPresenter.</p>
@@ -326,6 +338,7 @@ function LiveControlPanel() {
         </>
     );
 }
+
         const InfoField = ({ label, value, isSecret = false }) => {
             const [copied, setCopied] = useState(false);
             const handleCopy = () => { navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
